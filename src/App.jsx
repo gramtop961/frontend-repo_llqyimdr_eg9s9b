@@ -26,15 +26,20 @@ export default function App() {
   const currentPlayer = useMemo(() => (game?.x_is_next ? 'X' : 'O'), [game]);
 
   const fetchGame = useCallback(async (id) => {
-    const res = await fetch(`${API_BASE}/api/game/${id}`);
-    if (res.ok) {
-      const data = await res.json();
-      setGame(data);
+    try {
+      const res = await fetch(`${API_BASE}/api/game/${id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setGame(data);
+      }
+    } catch (e) {
+      // ignore transient fetch errors during polling
     }
   }, []);
 
   const startPolling = useCallback((id) => {
     if (pollRef.current) clearInterval(pollRef.current);
+    fetchGame(id); // immediate fetch
     pollRef.current = setInterval(() => fetchGame(id), 1000);
   }, [fetchGame]);
 
@@ -47,55 +52,69 @@ export default function App() {
     localStorage.setItem('ttt_player_id', storedId);
     setPlayerId(storedId);
 
-    const res = await fetch(`${API_BASE}/api/game/join`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ game_id: code, player_id: storedId }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setRole(data.role);
-      setGame(data.game);
-      setGameId(code);
-      setJoined(true);
-      startPolling(code);
-    } else {
-      const err = await res.json().catch(() => ({}));
-      alert(err.detail || 'Failed to join game');
+    try {
+      const res = await fetch(`${API_BASE}/api/game/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ game_id: code, player_id: storedId, name }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.player_id) {
+          localStorage.setItem('ttt_player_id', data.player_id);
+          setPlayerId(data.player_id);
+        }
+        setRole(data.role);
+        setGame(data.game);
+        setGameId(code);
+        setJoined(true);
+        startPolling(code);
+        return { ok: true };
+      } else {
+        const err = await res.json().catch(() => ({}));
+        const message = err.detail || 'Failed to join game';
+        return { ok: false, error: message };
+      }
+    } catch (e) {
+      return { ok: false, error: 'Network error. Please check your connection.' };
     }
   }
 
   async function handleSquareClick(index) {
     if (!game || game.winner || game.draw) return;
-    // only allow move if it's your turn
     const isYourTurn = (role === 'X' && game.x_is_next) || (role === 'O' && !game.x_is_next);
     if (!isYourTurn) return;
     if (game.board[index] !== null) return;
 
-    const res = await fetch(`${API_BASE}/api/game/${gameId}/move`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ index, role, player_id: playerId }),
-    });
-    if (res.ok) {
-      const updated = await res.json();
-      setGame(updated);
-    } else {
-      const err = await res.json().catch(() => ({}));
-      alert(err.detail || 'Move failed');
+    try {
+      const res = await fetch(`${API_BASE}/api/game/${gameId}/move`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ index, role, player_id: playerId }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setGame(updated);
+      }
+    } catch (e) {
+      // ignore transient errors; polling will reconcile
     }
   }
 
   async function resetRound() {
     if (!gameId) return;
-    const res = await fetch(`${API_BASE}/api/game/${gameId}/reset-round`, { method: 'POST' });
-    if (res.ok) setGame(await res.json());
+    try {
+      const res = await fetch(`${API_BASE}/api/game/${gameId}/reset-round`, { method: 'POST' });
+      if (res.ok) setGame(await res.json());
+    } catch {}
   }
 
   async function resetScores() {
     if (!gameId) return;
-    const res = await fetch(`${API_BASE}/api/game/${gameId}/reset-scores`, { method: 'POST' });
-    if (res.ok) setGame(await res.json());
+    try {
+      const res = await fetch(`${API_BASE}/api/game/${gameId}/reset-scores`, { method: 'POST' });
+      if (res.ok) setGame(await res.json());
+    } catch {}
   }
 
   const canResetRound = Boolean(game && (game.winner || game.draw || game.board.some((v) => v !== null)));

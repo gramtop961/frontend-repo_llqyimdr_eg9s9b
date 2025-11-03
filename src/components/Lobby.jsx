@@ -4,15 +4,18 @@ export default function Lobby({ onJoin }) {
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     const savedName = localStorage.getItem('ttt_name');
     if (savedName) setName(savedName);
   }, []);
 
-  function handleJoin(e) {
+  async function handleJoin(e) {
     e.preventDefault();
     setError('');
+    if (submitting) return;
+
     const trimmed = code.trim();
     if (!/^\d{4}$/.test(trimmed)) {
       setError('Enter a 4‑digit game ID');
@@ -20,7 +23,16 @@ export default function Lobby({ onJoin }) {
     }
     const playerName = name.trim() || 'Player';
     localStorage.setItem('ttt_name', playerName);
-    onJoin(trimmed, playerName);
+
+    setSubmitting(true);
+    try {
+      const result = await onJoin(trimmed, playerName);
+      if (!result?.ok) {
+        setError(result?.error || 'Failed to join game');
+      }
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -49,8 +61,12 @@ export default function Lobby({ onJoin }) {
           />
         </div>
         {error && <div className="text-sm text-rose-600">{error}</div>}
-        <button type="submit" className="w-full py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition">
-          Join / Create Game
+        <button
+          type="submit"
+          disabled={submitting}
+          className="w-full py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {submitting ? 'Joining…' : 'Join / Create Game'}
         </button>
       </form>
     </div>
